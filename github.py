@@ -49,6 +49,7 @@ def handle_gh_commit_lookup_enable(bot, ievent):
     """ no arguments - enable github commit lookups in a channel. """
     if len(ievent.args) != 1:
         ievent.reply("syntax: gh_commit_lookup_enable user/project (e.g. firebreath/FireBreath)")
+        return
     if not cfg.data.has_key(ievent.channel):
         cfg.data[ievent.channel] = []
     project = ievent.args[0]
