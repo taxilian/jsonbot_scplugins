@@ -57,13 +57,12 @@ class IrcCatListener(ThreadingMixIn, StreamRequestHandler):
         dest, message = message.split(" ", 1)
         dest = [x.strip().strip("@") for x in dest.split(",")]
         finalDest = []
-        logging.info("Current aliases: %s", cfg.aliases)
         for d in dest:
             finalDest.append(d)
             if d in cfg.aliases.keys():
                 for alias in cfg.aliases[d]:
                     finalDest.append(alias)
-        return dest, message
+        return finalDest, message
 
 def init():
     global server
