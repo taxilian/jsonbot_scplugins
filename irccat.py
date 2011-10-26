@@ -1,10 +1,23 @@
 #!/usr/bin/env python
 """
-irccat.py - Phenny "irccat" Module
+irccat.py - jsonbot "irccat" Module
 Copyright 2011, Richard Bateman
 Licensed under the New BSD License.
 
 Written to be used in the #firebreath IRC channel: http://www.firebreath.org
+
+To test, set up the host and port, then use something like:
+
+echo "@taxilian I am awesome" | netcat -g0 localhost 54321
+
+echo "#channel I am awesome" | netcat -g0 localhost 54321
+
+you can specify multiple users (with @) and channels (with #) by seperating them
+with commas.  Not that with jabber, channels tend to be treated as users
+unless you set up an alias in your channel:
+
+!irccat_add_alias #channel
+
 """
 
 ## jsb imports
