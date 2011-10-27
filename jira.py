@@ -1,15 +1,14 @@
 #!/usr/bin/env python
 """
-jira.py - jsonbot module; adapted from a phenny module by Sean B. Palmer
-Copyright 2008, Sean B. Palmer, inamidst.com
-Licensed under the Eiffel Forum License 2.
+jira.py - jsonbot module for performing lookups on a jira server
+Copyright 2011, Richard Bateman
 
-Modifications Copyright 2011, Richard Bateman
+Special thanks to Sean B. Palmer for his phenny module; many of the ideas for
+this were adapted from that plugin
 
 http://inamidst.com/phenny/
 """
 
-from jsb.utils.exception import handle_exception
 from jsb.lib.callbacks import callbacks
 from jsb.lib.commands import cmnds
 from jsb.lib.persist import PlugPersist
@@ -26,68 +25,64 @@ min_age = 60 * 5
 rpc_clients = {}
 cfg = PlugPersist('jira', {})
 
-def getRpcClient(server):
-    if project["name"] not in rpc_clients:
-        base_url = "%s/api/xmlrpc" % project["url"]
-        server = xmlrpclib.ServerProxy(base_url)
-        auth = server.login(project["username"], project["password"])
-        logging.info("Created new RPC client for %s with auth token: %s" % (project["name"], auth))
-        rpc_clients[project["name"]] = (server, auth)
-
-    return rpc_clients[project["name"]]
-
-def get_status(self):
-    server = xmlrpclib.ServerProxy(self.config.jira_baseurl)
-    print self.config.jira_baseurl
+def getServerInfo(server, auth):
     try:
-        # self.jira = {}
-        auth = server.jira1.login(self.config.jira_username, self.config.jira_password)
         server_statuses = server.jira1.getStatuses(auth)
-        print server_statuses
-        jira_statuses = {}
+        statusMap = {}
         for status in server_statuses:
-            if self.config.jira_mappings['status'].has_key(status['name']):
-                jira_statuses[status['id']] = self.config.jira_mappings['status'][status['name']]
-            else:
-                jira_statuses[status['id']] = status['name']
-        self.jira_statuses = jira_statuses
+            statusMap[status['id']] = status['name']
+
         server_priorities = server.jira1.getPriorities(auth)
-        jira_priorities = {}
+
+        priorityMap = {}
         for priority in server_priorities:
-            if self.config.jira_mappings['priority'].has_key(priority['name']):
-                jira_priorities[priority['id']] = self.config.jira_mappings['priority'][priority['name']]
-            else:
-                jira_priorities[priority['id']] = priority['name']
-        self.jira_priorities = jira_priorities
+            priorityMap[priority['id']] = priority['name']
 
         info = server.jira1.getServerInfo(auth)
-        self.jira_baseurl = info['baseUrl']
-    except xmlrpclib.Error, v:
-        print "XMLRPC ERROR: ", v
+        jira_baseurl = info['baseUrl']
 
-def _ticket_lookup(self, ticket):
-    server = xmlrpclib.ServerProxy(self.config.jira_baseurl)
-    print self.config.jira_baseurl
+        return {
+            "statusMap": statusMap,
+            "priorityMap": priorityMap,
+            "baseUrl": jira_baseurl
+        }
+    except xmlrpclib.Error, v:
+        print "XMLRPC ERROR: ",
+
+
+def getRpcClient(server):
+    if server["name"] not in rpc_clients:
+        base_url = "%s/api/xmlrpc" % server["url"]
+        server = xmlrpclib.ServerProxy(base_url)
+        auth = server.login(server["username"], server["password"])
+        logging.info("Created new RPC client for %s with auth token: %s" % (server["name"], auth))
+        rpc_clients[server["name"]] = (server, auth)
+        server["serverInfo"] = getServerInfo(server, auth)
+
+    return rpc_clients[server["name"]]
+
+def getJiraIssue(s, ticket):
+    server, auth = getRpcClient(s)
     try:
-        auth = server.jira1.login(self.config.jira_username, self.config.jira_password)
         info = server.jira1.getIssue(auth, ticket)
-        print info
         return info
     except xmlrpclib.Error, v:
         print "XMLRPC ERROR:", v
     return None
 
-def ticket_lookup(self, ticket):
+def getJiraIssueMessage(s, ticket):
     """docstring for ticket_lookup"""
-    info = _ticket_lookup(self, ticket)
+    info = getJiraIssue(s, ticket)
     if info:
-        self.say( "%s: Summary:     %s" % (info['key'], info['summary']))
+        outInfo = []
+        outInfo.append("%s: Summary:     %s" % (info['key'], info['summary']))
         if info.has_key('assignee'):
-            self.say( "%s: Assigned To: %s" % (info['key'], info['assignee']))
+            outInfo.append( "%s: Assigned To: %s" % (info['key'], info['assignee']))
         else:
-            self.say( "%s: Assigned To: Unassigned" % (info['key']))
-        data = (info["key"], self.jira_priorities[info['priority']], self.jira_statuses[info['status']], self.jira_baseurl, info["key"])
-        self.say( "%s: Priority: %s, Status: %s, %s/browse/%s" % data)
+            outInfo.append( "%s: Assigned To: Unassigned" % (info['key']))
+        data = (info["key"], s["serverInfo"]["priorityMap"][info['priority']], s["serverInfo"]["statusMap"][info['status']], s["serverInfo"]["baseUrl"], info["key"])
+        outInfo.append( "%s: Priority: %s, Status: %s, %s/browse/%s" % data)
+        return outInfo
 
 def f_jira(phenny, input):
     """JIRA stuff"""
@@ -99,40 +94,110 @@ def f_jira(phenny, input):
             ticket_lookup(phenny, ticket)
 f_jira.priority = 'low'
 
-def f_jiratoac(phenny, input):
-    """docstring for f_jiratoac"""
-    ticket = input.group(2)
-    info = _ticket_lookup(phenny, ticket)
-    #if info:
-    #    project = modules.activecollab.current_project(phenny, input.sender)
-    #    if project:
-    #        summary = '(%s) %s' % (ticket, info['summary'])
-    #        js = modules.activecollab.create_ticket(phenny, project, summary)
-    #        phenny.say('Created ticket %s-%s: %s' % (project, js['id'], js['permalink']))
-f_jiratoac.commands = [ 'jiratoac' ]
-f_jiratoac.priority = 'medium'
+def containsJiraLikeTag(bot, ievent):
+    if ievent.how == "backgound": return 0
 
-def f_search_confluence(self, input):
-    print "Wiki search", input
-    query = input.group(1)
-    if not input.sender in self.config.jira_channels and not input.owner:
+    prefixList = cfg.data["prefixes"]
+
+    prefixLookup = "(%s)" % "|".join(prefixList)
+
+    test = re.compile(".*(%s-[0-9]+).*" % prefixLookup)
+    regexSearch = "(%s-[0-9]+)"
+
+    return 0
+
+def doLookup(bot, ievent):
+    logging.info("Doing lookup for fisheye changeset")
+    fnd = gitHashRule.match(ievent.txt)
+
+callbacks.add('PRIVMSG', doLookup, containsJiraLikeTag, threaded=True)
+callbacks.add('CONSOLE', doLookup, containsJiraLikeTag, threaded=True)
+callbacks.add('MESSAGE', doLookup, containsJiraLikeTag, threaded=True)
+callbacks.add('DISPATCH', doLookup, containsJiraLikeTag, threaded=True)
+callbacks.add('TORNADO', doLookup, containsJiraLikeTag, threaded=True)
+
+def handle_add_jira_server(bot, ievent):
+    """ configure a new jira server; syntax: add_jira_server [server name] [url] [username] [password] """
+    if len(ievent.args) != 4:
+        ievent.reply("syntax: add_jira_server [server name] [url] [username] [password]")
         return
-    server = xmlrpclib.ServerProxy(self.config.confluence_baseurl)
-    rpc = server.confluence1
-    auth = rpc.login(self.config.confluence_username, self.config.confluence_password)
-    results = rpc.search(auth, query, self.config.confluence_searchresults)
 
-    self.say ("%s results found. Note: Results limited to %s" % (len(results), self.config.confluence_searchresults))
-    for page in results[:self.config.confluence_searchresults]:
-        self.say ('"%s": %s' % (page["title"], shorten(page["url"])))
+    server = {
+        "name": ievent.args[0],
+        "url": ievent.args[1].strip("/"),
+        "username": ievent.args[2],
+        "password": ievent.args[3],
+        "channels": {},
+        "serverInfo": {},
+    }
 
-f_search_confluence.rule = r'^\!wiki (.*)'
-f_search_confluence.priority = "medium"
-f_search_confluence.thread = True
+    if not cfg.data.has_key("servers"):
+        cfg.data["servers"] = {}
+    cfg.data["servers"][server["name"]] = server
+    cfg.save()
 
-def setup(self):
-    get_status(self)
-    re_str = r'((?:' + '|'.join(self.config.jira_projects) + ')-(?:\d+))'
-    self.jira_re = re.compile(re_str)
-    f_jira.rule = r'.*' + re_str
+    ievent.reply("Added jira server %s" % server["name"])
+cmnds.add("add_jira_server", handle_add_jira_server, ["OPER"])
+examples.add("add_jira_server", "add a jira server", "add_jira_server FireBreath http://jira.firebreath.org myuser mypassword")
+
+def handle_del_jira_server(bot, ievent):
+    """ remove a jira server; syntax: del_jira_server """
+    if len(ievent.args) != 4:
+        ievent.reply("syntax: del_jira_server [server name]")
+        return
+
+    serverName = ievent.args[0]
+    if not cfg.data.has_key("servers"):
+        cfg.data["servers"] = {}
+    if serverName in cfg.data["servers"]:
+        del cfg.data["servers"][serverName]
+        cfg.save()
+        ievent.reply("Deleted jira server %s" % serverName)
+    else:
+        ievent.reply("Unknown jira server %s" % serverName)
+cmnds.add("del_jira_server", handle_del_jira_server, ["OPER"])
+examples.add("del_jira_server", "del a jira server", "del_jira_server FireBreath http://jira.firebreath.org myuser mypassword")
+
+def handle_jira_issue_lookup_enable(bot, ievent):
+    """ enable lookups for jira issues in the current channel; syntax: jira_issue_lookup_enable [server] [prefix] """
+    if len(ievent.args) != 2:
+        ievent.reply("syntax: jira_issue_lookup_enable [server] [prefix]")
+        return
+
+    serverName, prefix = ievent.args
+    if not "servers" in cfg.data or not serverName in cfg.data["servers"]:
+        ievent.reply("Unknown server %s" % serverName)
+        return
+
+    prefixSet = set(cfg.data["prefixes"]) if "prefixes" in cfg.data else set()
+    server = cfg.data["servers"][serverName]
+    if ievent.channel not in server["channels"]:
+        server["channels"][ievent.channel] = []
+
+    if not prefix in server["channels"][ievent.channel]:
+        server["channels"][ievent.channel].append(prefix)
+
+    prefixSet.add(prefix)
+
+    cfg.data["prefixes"] = list(prefixSet)
+    cfg.save()
+    ievent.reply("enabled lookups of %s-* jira tickets in this channel on server %s" % (prefix, serverName))
+cmnds.add("jira_issue_lookup_enable", handle_jira_issue_lookup_enable, ["OPER"])
+examples.add("jira_issue_lookup_enable", "enable lookups of jira tickets in the channel", "jira_issue_lookup_enable jiraserver FIREBREATH")
+
+def handle_jira_issue_lookup_disable(bot, ievent):
+    """ enable lookups for jira issues in the current channel for a given server; syntax: jira_issue_lookup_disable [server] """
+    if len(ievent.args) != 1:
+        ievent.reply("syntax: jira_issue_lookup_disable [server]")
+        return
+
+    serverName = ievent.args[0]
+    if not "servers" in cfg.data or not serverName in cfg.data["servers"]:
+        ievent.reply("Unknown server %s" % serverName)
+        return
+
+    server = cfg.data["servers"][serverName]
+    if ievent.channel in server["channels"]:
+        server["channels"].remove(ievent.channel)
+        ievent.reply("disabled lookups of jira tickets on server %s from this server" % serverName)
 
