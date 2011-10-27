@@ -95,9 +95,37 @@ def handle_irccat_add_alias(bot, ievent):
     dest = ievent.args[0]
     if dest not in cfg.aliases:
         cfg.aliases[dest] = []
-    cfg.aliases[dest].append(ievent.channel)
+    if ievent.channel not in cfg.aliases[dest]:
+        cfg.aliases[dest].append(ievent.channel)
     cfg.save()
     ievent.reply("%s will now receive irccat messages directed at %s" % (ievent.channel, dest))
 cmnds.add("irccat_add_alias", handle_irccat_add_alias, ['OPER'])
 examples.add("irccat_add_alias", "add an alias to the current channel from the specified one", "irccat_add_alias #firebreath")
+
+def handle_irccat_list_aliases(bot, ievent):
+    """ List all aliases defined for the current channel """
+    if len(ievent.args) != 1:
+        ievent.reply("syntax: irccat_list_aliases ")
+        return
+
+    aliases = [dest for dest, chanlist in cfg.aliases.iteritems() if ievent.channel in chanlist]
+
+    ievent.reply("%s is receiving irccat messages directed at: %s" % (ievent.channel, ", ".join(aliases)))
+cmnds.add("irccat_list_aliases", handle_irccat_add_alias, ['OPER'])
+examples.add("irccat_list_aliases", "lists the aliases for the current channel", "irccat_list_aliases")
+
+def handle_irccat_del_alias(bot, ievent):
+    if len(ievent.args) != 1:
+        ievent.reply("syntax: irccat_del_alias <alias> (where <alias> is the channel you no longer want notifications for)")
+        return
+    dest = ievent.args[0]
+    if dest not in cfg.aliases or ievent.channel not in cfg.aliases[dest]:
+        ievent.reply("%s is not an alias for %s" % (ievent.channel, dest))
+        return
+
+    cfg.aliases[dest].remove(ievent.channel)
+    ievent.reply("%s will no longer receive irccat messages directed at %s" % (ievent.channel, dest))
+    cfg.save()
+cmnds.add("irccat_del_alias", handle_irccat_add_alias, ['OPER'])
+examples.add("irccat_del_alias", "add an alias to the current channel from the specified one", "irccat_del_alias #firebreath")
 
