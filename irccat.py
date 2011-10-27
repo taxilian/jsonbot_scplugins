@@ -104,14 +104,10 @@ examples.add("irccat_add_alias", "add an alias to the current channel from the s
 
 def handle_irccat_list_aliases(bot, ievent):
     """ List all aliases defined for the current channel """
-    if len(ievent.args) != 1:
-        ievent.reply("syntax: irccat_list_aliases ")
-        return
-
     aliases = [dest for dest, chanlist in cfg.aliases.iteritems() if ievent.channel in chanlist]
 
     ievent.reply("%s is receiving irccat messages directed at: %s" % (ievent.channel, ", ".join(aliases)))
-cmnds.add("irccat_list_aliases", handle_irccat_add_alias, ['OPER'])
+cmnds.add("irccat_list_aliases", handle_irccat_list_aliases, ['OPER'])
 examples.add("irccat_list_aliases", "lists the aliases for the current channel", "irccat_list_aliases")
 
 def handle_irccat_del_alias(bot, ievent):
@@ -126,6 +122,6 @@ def handle_irccat_del_alias(bot, ievent):
     cfg.aliases[dest].remove(ievent.channel)
     ievent.reply("%s will no longer receive irccat messages directed at %s" % (ievent.channel, dest))
     cfg.save()
-cmnds.add("irccat_del_alias", handle_irccat_add_alias, ['OPER'])
+cmnds.add("irccat_del_alias", handle_irccat_del_alias, ['OPER'])
 examples.add("irccat_del_alias", "add an alias to the current channel from the specified one", "irccat_del_alias #firebreath")
 
