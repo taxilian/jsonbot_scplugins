@@ -1,3 +1,13 @@
+from jsb.lib.callbacks import callbacks
+from jsb.lib.commands import cmnds
+from jsb.lib.persist import PlugPersist
+from jsb.lib.examples import examples
+from jsb.plugs.common.tinyurl import get_tinyurl
+import logging
+import xmlrpclib
+import re
+import time
+
 def handle_add_fisheye_project(bot, ievent):
     """ configure a new fisheye project; syntax: add_fisheye_project [project name] [url] [username] [password] """
     if len(ievent.args) != 4:

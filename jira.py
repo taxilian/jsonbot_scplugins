@@ -52,9 +52,10 @@ def getServerInfo(server, auth):
 
 def getRpcClient(server):
     if server["name"] not in rpc_clients:
-        base_url = "%s/api/xmlrpc" % server["url"]
+        base_url = "%s/rpc/xmlrpc" % server["url"]
+        logging.info("Creating RPC proxy for %s" % base_url)
         server = xmlrpclib.ServerProxy(base_url)
-        auth = server.login(server["username"], server["password"])
+        auth = server.jira1.login(server["username"], server["password"])
         logging.info("Created new RPC client for %s with auth token: %s" % (server["name"], auth))
         rpc_clients[server["name"]] = (server, auth)
         server["serverInfo"] = getServerInfo(server, auth)
@@ -65,6 +66,7 @@ def getJiraIssue(s, ticket):
     server, auth = getRpcClient(s)
     try:
         info = server.jira1.getIssue(auth, ticket)
+        logging.info("jira ticket: %s" % ticket)
         return info
     except xmlrpclib.Error, v:
         print "XMLRPC ERROR:", v
@@ -84,31 +86,47 @@ def getJiraIssueMessage(s, ticket):
         outInfo.append( "%s: Priority: %s, Status: %s, %s/browse/%s" % data)
         return outInfo
 
-def f_jira(phenny, input):
-    """JIRA stuff"""
-    if not input.sender in phenny.config.jira_channels and not input.owner:
-        return
-    for ticket in phenny.jira_re.findall(input.bytes):
-        if ticket not in recent_tickets or recent_tickets[ticket] < time.time() - min_age:
-            recent_tickets[ticket] = time.time()
-            ticket_lookup(phenny, ticket)
-f_jira.priority = 'low'
-
-def containsJiraLikeTag(bot, ievent):
-    if ievent.how == "backgound": return 0
-
+def getMatchRegEx():
     prefixList = cfg.data["prefixes"]
 
     prefixLookup = "(%s)" % "|".join(prefixList)
 
     test = re.compile(".*(%s-[0-9]+).*" % prefixLookup)
-    regexSearch = "(%s-[0-9]+)"
+    return test
+
+
+def containsJiraLikeTag(bot, ievent):
+    if ievent.how == "backgound": return 0
+
+    test = getMatchRegEx()
+
+    fnd = test.match(ievent.txt)
+
+    if fnd:
+        return 1
 
     return 0
 
 def doLookup(bot, ievent):
-    logging.info("Doing lookup for fisheye changeset")
-    fnd = gitHashRule.match(ievent.txt)
+    test = getMatchRegEx()
+
+    fnd = test.match(ievent.txt)
+    if fnd:
+        ticket = fnd.group(1)
+        prefix = fnd.group(2)
+        logging.info("Found: %s %s" % (ticket, prefix))
+        logging.info("servers: %s" % cfg.data["servers"])
+        server = (server
+                    for server, serverData in cfg.data["servers"].iteritems()
+                    for channel, prefList in serverData["channels"].iteritems()
+                        if prefix in prefList).next()
+        channels = [channel for channel, prefList in cfg.data["servers"][server].iteritems() if prefix in prefList]
+
+        msg = getJiraIssueMessage(cfg.data["servers"][server], ticket)
+        for channel in channels:
+            for line in msg:
+                bot.say(ievent.channel, line)
+
 
 callbacks.add('PRIVMSG', doLookup, containsJiraLikeTag, threaded=True)
 callbacks.add('CONSOLE', doLookup, containsJiraLikeTag, threaded=True)
