@@ -79,6 +79,12 @@ class IrcCatListener(ThreadingMixIn, StreamRequestHandler):
 
 def init():
     global server
+    if "host" not in cfg.data or "port" not in cfg.data:
+        cfg.data["host"] = "localhost"
+        cfg.data["port"] = 54321
+        cfg.data["botnames"] = ["default-sxmpp",]
+        cfg.data["aliases"] = {}
+        cfg.save()
     server = SocketServer.TCPServer((cfg.data["host"], cfg.data["port"]), IrcCatListener)
     logging.warn("starting irccat server on %s:%s" % (cfg.data["host"], cfg.data["port"]))
     start_new_thread(server.serve_forever, ())
