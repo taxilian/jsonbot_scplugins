@@ -34,13 +34,12 @@ import logging
 
 ## defines
 
-botnames = PlugPersist("botnames", ["default-sxmpp",])
-host     = PlugPersist("host", "localhost")
-port     = PlugPersist("port", 54321)
-aliases  = PlugPersist("aliases", {})
-
-def save():
-    aliases.save()
+cfg = PlugPersist("irccat", {
+    "botnames": ["default-sxmpp",],
+    "host": "localhost",
+    "port": "54321",
+    "aliases": {},
+    })
 
 import SocketServer
 from SocketServer import ThreadingMixIn, StreamRequestHandler
@@ -57,7 +56,7 @@ class IrcCatListener(ThreadingMixIn, StreamRequestHandler):
         dest, msg = self.splitMsg(msg)
         for chan in dest:
             logging.info("sending to %s" % chan)
-            for botname in botnames.data:
+            for botname in cfg.data["botnames"]:
                 bot = fleet.byname(botname)
                 if bot:
                     if chan[0] == "#" and chan not in bot.state['joinedchannels']:
@@ -73,15 +72,15 @@ class IrcCatListener(ThreadingMixIn, StreamRequestHandler):
         finalDest = []
         for d in dest:
             finalDest.append(d)
-            if d in aliases.data.keys():
-                for alias in aliases.data[d]:
+            if d in cfg.data["aliases"].keys():
+                for alias in cfg.data["aliases"][d]:
                     finalDest.append(alias)
         return finalDest, message
 
 def init():
     global server
-    server = SocketServer.TCPServer((host.data, port.data), IrcCatListener)
-    logging.warn("starting irccat server on %s:%s" % (host.data, port.data))
+    server = SocketServer.TCPServer((cfg.data["host"], cfg.data["port"]), IrcCatListener)
+    logging.warn("starting irccat server on %s:%s" % (cfg.data["host"], cfg.data["port"]))
     start_new_thread(server.serve_forever, ())
 
 def shutdown():
@@ -94,20 +93,20 @@ def handle_irccat_add_alias(bot, ievent):
         ievent.reply("syntax: irccat_add_alias <alias> (where <alias> is the channel you want notifications for)")
         return
     dest = ievent.args[0]
-    if dest not in aliases.data:
-        aliases.data[dest] = []
-    if ievent.channel not in aliases.data[dest]:
-        aliases.data[dest].append(ievent.channel)
-    save()
+    if dest not in cfg.data["aliases"]:
+        cfg.data["aliases"][dest] = []
+    if ievent.channel not in cfg.data["aliases"][dest]:
+        cfg.data["aliases"][dest].append(ievent.channel)
+    cfg.save()
     ievent.reply("%s will now receive irccat messages directed at %s" % (ievent.channel, dest))
 cmnds.add("irccat_add_alias", handle_irccat_add_alias, ['OPER'])
 examples.add("irccat_add_alias", "add an alias to the current channel from the specified one", "irccat_add_alias #firebreath")
 
 def handle_irccat_list_aliases(bot, ievent):
     """ List all aliases defined for the current channel """
-    alist = [dest for dest, chanlist in aliases.data.iteritems() if ievent.channel in chanlist]
+    aliases = [dest for dest, chanlist in cfg.data["aliases"].iteritems() if ievent.channel in chanlist]
 
-    ievent.reply("%s is receiving irccat messages directed at: %s" % (ievent.channel, ", ".join(alist)))
+    ievent.reply("%s is receiving irccat messages directed at: %s" % (ievent.channel, ", ".join(aliases)))
 cmnds.add("irccat_list_aliases", handle_irccat_list_aliases, ['OPER'])
 examples.add("irccat_list_aliases", "lists the aliases for the current channel", "irccat_list_aliases")
 
@@ -116,13 +115,13 @@ def handle_irccat_del_alias(bot, ievent):
         ievent.reply("syntax: irccat_del_alias <alias> (where <alias> is the channel you no longer want notifications for)")
         return
     dest = ievent.args[0]
-    if dest not in aliases.data or ievent.channel not in aliases.data[dest]:
+    if dest not in cfg.data["aliases "]or ievent.channel not in cfg.data["aliases"][dest]:
         ievent.reply("%s is not an alias for %s" % (ievent.channel, dest))
         return
 
-    aliases.data[dest].remove(ievent.channel)
+    cfg.data["aliases"][dest].remove(ievent.channel)
     ievent.reply("%s will no longer receive irccat messages directed at %s" % (ievent.channel, dest))
-    save()
+    cfg.save()
 cmnds.add("irccat_del_alias", handle_irccat_del_alias, ['OPER'])
 examples.add("irccat_del_alias", "add an alias to the current channel from the specified one", "irccat_del_alias #firebreath")
 
