@@ -50,23 +50,25 @@ def getServerInfo(server, auth):
         print "XMLRPC ERROR: ",
 
 
-def getRpcClient(server):
-    if server["name"] not in rpc_clients:
-        base_url = "%s/rpc/xmlrpc" % server["url"]
-        logging.info("Creating RPC proxy for %s" % base_url)
+def getRpcClient(sInfo):
+    if sInfo["name"] not in rpc_clients:
+        base_url = "%s/rpc/xmlrpc" % sInfo["url"]
         server = xmlrpclib.ServerProxy(base_url)
-        auth = server.jira1.login(server["username"], server["password"])
-        logging.info("Created new RPC client for %s with auth token: %s" % (server["name"], auth))
-        rpc_clients[server["name"]] = (server, auth)
-        server["serverInfo"] = getServerInfo(server, auth)
 
-    return rpc_clients[server["name"]]
+        username, password = sInfo["username"], sInfo["password"]
+        auth = server.jira1.login(username, password)
+
+        rpc_clients[sInfo["name"]] = (server, auth)
+
+        sInfo["serverInfo"] = getServerInfo(server, auth)
+        logging.info("Server info: %s" % sInfo)
+
+    return rpc_clients[sInfo["name"]]
 
 def getJiraIssue(s, ticket):
     server, auth = getRpcClient(s)
     try:
         info = server.jira1.getIssue(auth, ticket)
-        logging.info("jira ticket: %s" % ticket)
         return info
     except xmlrpclib.Error, v:
         print "XMLRPC ERROR:", v
@@ -75,6 +77,7 @@ def getJiraIssue(s, ticket):
 def getJiraIssueMessage(s, ticket):
     """docstring for ticket_lookup"""
     info = getJiraIssue(s, ticket)
+    logging.info("jira ticket: %s is %s" % (ticket, info))
     if info:
         outInfo = []
         outInfo.append("%s: Summary:     %s" % (info['key'], info['summary']))
@@ -84,22 +87,26 @@ def getJiraIssueMessage(s, ticket):
             outInfo.append( "%s: Assigned To: Unassigned" % (info['key']))
         data = (info["key"], s["serverInfo"]["priorityMap"][info['priority']], s["serverInfo"]["statusMap"][info['status']], s["serverInfo"]["baseUrl"], info["key"])
         outInfo.append( "%s: Priority: %s, Status: %s, %s/browse/%s" % data)
+
+        logging.info("Jira ticket text: %s" % outInfo)
         return outInfo
 
-def getMatchRegEx():
-    prefixList = cfg.data["prefixes"]
-
+def getMatchRegEx(prefixList):
     prefixLookup = "(%s)" % "|".join(prefixList)
 
     test = re.compile(".*(%s-[0-9]+).*" % prefixLookup)
     return test
 
 
-def containsJiraLikeTag(bot, ievent):
+def containsJiraTag(bot, ievent):
     if ievent.how == "backgound": return 0
 
-    test = getMatchRegEx()
+    prefixList = set()
+    for server, serverData in cfg.data["servers"].iteritems():
+        if ievent.channel in serverData["channels"]:
+            prefixList.update(serverData["channels"][ievent.channel])
 
+    test = getMatchRegEx(prefixList)
     fnd = test.match(ievent.txt)
 
     if fnd:
@@ -108,31 +115,33 @@ def containsJiraLikeTag(bot, ievent):
     return 0
 
 def doLookup(bot, ievent):
-    test = getMatchRegEx()
+    prefixList = set()
+    serversForPrefix = {}
+    for server, serverData in cfg.data["servers"].iteritems():
+        if ievent.channel in serverData["channels"]:
+            for prefix in serverData["channels"][ievent.channel]:
+                serversForPrefix[prefix] = server
+                prefixList.add(prefix)
 
+    test = getMatchRegEx(prefixList)
     fnd = test.match(ievent.txt)
     if fnd:
         ticket = fnd.group(1)
         prefix = fnd.group(2)
         logging.info("Found: %s %s" % (ticket, prefix))
         logging.info("servers: %s" % cfg.data["servers"])
-        server = (server
-                    for server, serverData in cfg.data["servers"].iteritems()
-                    for channel, prefList in serverData["channels"].iteritems()
-                        if prefix in prefList).next()
-        channels = [channel for channel, prefList in cfg.data["servers"][server].iteritems() if prefix in prefList]
+        server = serversForPrefix[prefix]
 
         msg = getJiraIssueMessage(cfg.data["servers"][server], ticket)
-        for channel in channels:
-            for line in msg:
-                bot.say(ievent.channel, line)
+        for line in msg:
+            bot.say(ievent.channel, line)
 
 
-callbacks.add('PRIVMSG', doLookup, containsJiraLikeTag, threaded=True)
-callbacks.add('CONSOLE', doLookup, containsJiraLikeTag, threaded=True)
-callbacks.add('MESSAGE', doLookup, containsJiraLikeTag, threaded=True)
-callbacks.add('DISPATCH', doLookup, containsJiraLikeTag, threaded=True)
-callbacks.add('TORNADO', doLookup, containsJiraLikeTag, threaded=True)
+callbacks.add('PRIVMSG', doLookup, containsJiraTag, threaded=True)
+callbacks.add('CONSOLE', doLookup, containsJiraTag, threaded=True)
+callbacks.add('MESSAGE', doLookup, containsJiraTag, threaded=True)
+callbacks.add('DISPATCH', doLookup, containsJiraTag, threaded=True)
+callbacks.add('TORNADO', doLookup, containsJiraTag, threaded=True)
 
 def handle_add_jira_server(bot, ievent):
     """ configure a new jira server; syntax: add_jira_server [server name] [url] [username] [password] """
