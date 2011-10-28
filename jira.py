@@ -169,7 +169,7 @@ examples.add("add_jira_server", "add a jira server", "add_jira_server FireBreath
 
 def handle_del_jira_server(bot, ievent):
     """ remove a jira server; syntax: del_jira_server """
-    if len(ievent.args) != 4:
+    if len(ievent.args) != 1:
         ievent.reply("syntax: del_jira_server [server name]")
         return
 
